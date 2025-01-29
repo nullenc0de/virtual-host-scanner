@@ -10,8 +10,6 @@ import argparse
 from dataclasses import dataclass
 from collections import defaultdict
 
-print("[DEBUG] Script starting...")  # Initial debug print
-
 # Global list to track temporary files
 temp_files = []
 
@@ -45,6 +43,172 @@ class VhostResult:
     is_different: bool
     error_message: str = ""
 
+def get_vhost_wordlist() -> List[str]:
+    """Returns a list of common vhost names to try."""
+    return [
+        # Environment based
+        'dev', 'dev-api', 'dev-app', 'development',
+        'staging', 'stage', 'stg', 'stg-api',
+        'qa', 'qa-api', 'qa-app',
+        'uat', 'uat-api', 'uat-app',
+        'test', 'testing', 'test-api',
+        'prod', 'prod-api', 'production',
+        'demo', 'beta',
+        
+        # Function based
+        'admin', 'administrator',
+        'api', 'api-v1', 'api-v2', 'api-docs',
+        'app', 'apps', 'application',
+        'auth', 'login', 'sso',
+        'portal', 'dashboard',
+        'internal', 'internal-api',
+        'monitoring', 'monitor', 'status',
+        
+        # Common services
+        'jenkins', 'ci', 'build',
+        'jira', 'confluence',
+        'gitlab', 'git',
+        'docker', 'registry',
+        'kibana', 'elastic',
+        'grafana', 'prometheus',
+        'mail', 'smtp', 'webmail',
+        'vpn', 'remote',
+        
+        # Infrastructure
+        'cdn', 'static',
+        'load', 'loadbalancer',
+        'proxy', 'gateway',
+        'ns', 'ns1', 'ns2',
+        'dns', 'dns1', 'dns2',
+        
+        # Data related
+        'db', 'database',
+        'redis', 'cache',
+        'queue', 'mq',
+        'es', 'elasticsearch',
+        
+        # Common web
+        'web', 'www', 'www2',
+        'cms', 'wordpress',
+        'blog', 'docs',
+        'support', 'help',
+        
+        # Security
+        'sec', 'security',
+        'admin-panel',
+        'cp', 'cpanel',
+        'whm',
+        
+        # Legacy
+        'old', 'legacy',
+        'backup', 'bak',
+        'temp', 'tmp'
+    ]
+
+def get_sensitive_paths() -> List[str]:
+    """Returns a prioritized list of highly sensitive paths and files to check."""
+    return [
+        # Sensitive Files
+        '/.git/config',
+        '/.env',
+        '/config.php',
+        '/web.config',
+        '/wp-config.php',
+        '/.htpasswd',
+        '/.htaccess',
+        '/composer.json',
+        '/package.json',
+        '/config.json',
+        '/.ssh/id_rsa',
+        '/.npmrc',
+        '/.dockerignore',
+        '/.gitlab-ci.yml',
+        '/Dockerfile',
+        '/docker-compose.yml',
+        
+        # Sensitive Data Paths
+        '/backup/',
+        '/backups/',
+        '/dump.sql',
+        '/database.sql',
+        '/db.sql',
+        '/users.sql',
+        '/temp/',
+        '/logs/',
+        '/log/',
+        
+        # Configuration and Debug
+        '/.vscode/launch.json',
+        '/phpinfo.php',
+        '/info.php',
+        '/server-status',
+        '/server-info',
+        '/status',
+        '/.well-known/security.txt',
+        '/test.php',
+        '/adminer.php',
+        
+        # Authentication & Admin
+        '/admin/config',
+        '/admin/login',
+        '/administrator/login',
+        '/admin/dashboard',
+        '/wp-admin/install.php',
+        '/wp-admin/setup-config.php',
+        '/wp-json/wp/v2/users',
+        
+        # Development & API
+        '/api/docs',
+        '/api/swagger',
+        '/api/graphql',
+        '/graphiql',
+        '/.git/HEAD',
+        '/sftp-config.json',
+        '/.idea/workspace.xml',
+        
+        # Common CMS Paths
+        '/wp-content/debug.log',
+        '/wp-content/uploads/',
+        '/wp-includes/version.php',
+        '/.user.ini',
+        '/sitemap.xml',
+        
+        # AWS/Cloud
+        '/.aws/credentials',
+        '/s3cmd.ini',
+        '/.s3cfg',
+        
+        # Source Control
+        '/.svn/entries',
+        '/CVS/Root',
+        '/.bzr/README',
+        
+        # Application Specific
+        '/application/logs/log.txt',
+        '/application/config/database.php',
+        '/includes/config.php',
+        '/conf/settings.php',
+        
+        # Jenkins/CI
+        '/jenkins/script',
+        '/.jenkins/secret.key',
+        '/ci/config',
+        
+        # Known Vulnerabilities
+        '/solr/',
+        '/actuator/env',
+        '/actuator/health',
+        '/.DS_Store',
+        '/crossdomain.xml',
+        '/clientaccesspolicy.xml',
+        
+        # Error Pages (might reveal info)
+        '/errors/web.config',
+        '/error_log',
+        '/error.log',
+        '/debug.log'
+    ]
+
 def read_file_lines(filepath: str) -> List[str]:
     """Read lines from file and return as list."""
     try:
@@ -56,12 +220,9 @@ def read_file_lines(filepath: str) -> List[str]:
 
 def run_subfinder_and_dnsx(domain: str) -> tuple[str, str]:
     """Run subfinder and dnsx commands and return temporary file paths with optimizations."""
-    print("[DEBUG] Starting subfinder and dnsx...")  # Debug print
     subs_file = create_temp_file('subs_')
     dns_file = create_temp_file('dns_')
     unique_ips_file = create_temp_file('unique_ips_')
-    
-    print(f"[DEBUG] Created temp files: {subs_file}, {dns_file}, {unique_ips_file}")  # Debug print
     
     # Run subfinder with optimized settings
     print("[+] Running subfinder (this might take a minute)...")
@@ -95,7 +256,7 @@ def run_subfinder_and_dnsx(domain: str) -> tuple[str, str]:
     
     return subs_file, unique_ips_file
 
-def check_vhost_support(domains: List[str], ips: List[str]) -> tuple[List[str], List[str]]:
+def check_vhost_support(domains: List[str], ips: List[str], base_domain: str = None) -> tuple[List[str], List[str]]:
     """Use httpx to quickly identify hosts and IPs that support vhosts."""
     supported_hosts = []
     supported_ips = []
@@ -134,6 +295,32 @@ def check_vhost_support(domains: List[str], ips: List[str]) -> tuple[List[str], 
                     ip = ip.replace('https://', '').replace('http://', '')
                     supported_ips.append(ip)
         
+        # If we have IPs supporting vhost and a base domain, try common vhost names
+        if supported_ips and base_domain:
+            print("[+] Checking common vhost names against supported IPs...")
+            vhost_names = get_vhost_wordlist()
+            test_domains = []
+            for name in vhost_names:
+                test_domains.append(f"{name}.{base_domain}")
+            
+            # Create test file
+            vhost_test_file = create_temp_file('vhost_test_')
+            with open(vhost_test_file, 'w') as f:
+                for domain in test_domains:
+                    for ip in supported_ips:
+                        f.write(f"https://{ip}  # Host: {domain}\n")
+            
+            # Test with httpx
+            cmd = ['httpx', '-l', vhost_test_file, '-silent', '-vhost']
+            process = subprocess.run(cmd, capture_output=True, text=True)
+            
+            for line in process.stdout.splitlines():
+                if '[vhost]' in line:
+                    domain = line.split('Host:')[-1].strip()
+                    if domain not in supported_hosts:
+                        supported_hosts.append(domain)
+                        print(f"[+] Found additional vhost: {domain}")
+        
         return supported_hosts, supported_ips
         
     except subprocess.CalledProcessError as e:
@@ -142,48 +329,6 @@ def check_vhost_support(domains: List[str], ips: List[str]) -> tuple[List[str], 
     except Exception as e:
         print(f"[-] Unexpected error checking vhosts: {e}")
         return [], []
-
-def get_sensitive_paths() -> List[str]:
-    """Returns a prioritized list of sensitive paths to check."""
-    return [
-        # Critical Admin Paths
-        '/admin',
-        '/.git',
-        '/wp-admin',
-        '/administrator',
-        '/admins',
-        '/Admin',
-        '/adminpanel',
-        '/admin-console',
-        '/manager',
-        
-        # Common API Endpoints
-        '/api',
-        '/api/v1',
-        '/graphql',
-        '/swagger',
-        '/swagger-ui',
-        
-        # Authentication
-        '/login',
-        '/auth',
-        '/authorize',
-        
-        # Development
-        '/.env',
-        '/debug',
-        '/dev',
-        
-        # Common Applications
-        '/jenkins',
-        '/jira',
-        '/gitlab',
-        
-        # Sensitive Areas
-        '/backup',
-        '/config',
-        '/internal'
-    ]
 
 def generate_curl_command(result: VhostResult) -> str:
     """Generate a curl command to verify the finding."""
@@ -245,20 +390,35 @@ def filter_actionable_vhosts(results: List[VhostResult]) -> List[VhostResult]:
         ip_groups[result.ip].append(result)
     
     for ip, ip_results in ip_groups.items():
-        # Find successful responses (status 200-299 or 300-399)
-        successful = [r for r in ip_results if 200 <= r.status_code < 400]
+        # Focus on meaningful responses
+        interesting = [r for r in ip_results if (
+            # Include 200 responses with substantial content
+            (r.status_code == 200 and r.content_length > 500) or
+            
+            # Include 401/403 responses as they might indicate protected content
+            r.status_code in [401, 403] or
+            
+            # Include redirects only if they have meaningful content length
+            (r.status_code in [301, 302] and r.content_length > 500) or
+            
+            # Include error responses that aren't generic
+            (400 <= r.status_code < 500 and r.content_length > 1000)
+        )]
         
-        # Find responses with different content
-        different = [r for r in successful if r.is_different]
-        
-        # Filter out common redirects and empty responses
-        interesting = [r for r in different if not (
-            # Filter out common redirect lengths
-            (r.status_code in [301, 302] and r.content_length in [0, 3, 162, -1]) or
-            # Filter out empty responses
-            r.content_length == 0 or
-            # Filter out typical error page lengths
-            r.content_length in [-1, 3]
+        # Further filter to remove common patterns
+        interesting = [r for r in interesting if (
+            r.is_different and  # Must be different from baseline
+            r.content_length > 0 and  # Must have content
+            not (
+                # Filter out common redirect response sizes
+                (r.status_code in [301, 302] and r.content_length in [0, 3, 162, -1, 230, 247, 264]) or
+                
+                # Filter out typical error page lengths
+                r.content_length in [-1, 3] or
+                
+                # Filter out common empty responses
+                r.content_length == 0
+            )
         )]
         
         actionable.extend(interesting)
@@ -266,7 +426,7 @@ def filter_actionable_vhosts(results: List[VhostResult]) -> List[VhostResult]:
     return actionable
 
 def main():
-    print("[DEBUG] Main function started")  # Debug print
+    print("[DEBUG] Main function started")
     
     parser = argparse.ArgumentParser(description='Wrapper for VhostFinder to identify actionable virtual hosts')
     
@@ -279,7 +439,7 @@ def main():
     parser.add_argument('-v', '--verbose', action='store_true', help='Show verbose output')
     
     args = parser.parse_args()
-    print(f"[DEBUG] Args parsed: {args}")  # Debug print
+    print(f"[DEBUG] Args parsed: {args}")
     
     try:
         # Validate inputs
@@ -288,6 +448,7 @@ def main():
             
         subs_file = ""
         dns_file = ""
+        base_domain = args.domain if args.domain else None
         
         if args.domain:
             # Run subfinder and dnsx
@@ -302,10 +463,10 @@ def main():
         domains = read_file_lines(subs_file)
         ips = read_file_lines(dns_file)
         
-        print(f"[DEBUG] Found {len(domains)} domains and {len(ips)} IPs")  # Debug print
+        print(f"[DEBUG] Found {len(domains)} domains and {len(ips)} IPs")
         
         # Check both domains and IPs for vhost support
-        vhost_domains, vhost_ips = check_vhost_support(domains, ips)
+        vhost_domains, vhost_ips = check_vhost_support(domains, ips, base_domain)
         
         if not vhost_domains and not vhost_ips:
             print("[-] No hosts or IPs supporting vhost found.")
@@ -362,6 +523,7 @@ def main():
             print(f"[+] Scanning with {len(paths)} paths...")
             cmd.extend(['-p'] + paths)
         
+        print(f"[DEBUG] Running command: {' '.join(cmd)}")
         process = subprocess.run(cmd, capture_output=True, text=True)
         
         if process.returncode != 0:
@@ -409,10 +571,17 @@ def main():
         sys.exit(1)
     except Exception as e:
         print(f"[-] Unexpected error: {e}")
-        print(f"[DEBUG] Error type: {type(e)}")  # Debug print
+        print(f"[DEBUG] Error type: {type(e)}")
         import traceback
-        traceback.print_exc()  # Print full traceback for debugging
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[-] Interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"[-] Fatal error: {e}")
+        sys.exit(1)
